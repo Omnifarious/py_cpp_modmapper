@@ -92,7 +92,7 @@ class ProtocolEngine:
                 components = command.split()
                 if len(components) != 1:
                     raise Exception('MODULE-REPO command must have no arguments')
-                output_bundle.append('MODULE-REPO gcm.cache')
+                output_bundle.append('MODULE-REPO ./gcm.cache')
             elif command.startswith(b'INCLUDE-TRANSLATE'):
                 output_bundle.append('BOOL TRUE')
             elif command.startswith(b'MODULE-EXPORT'):
@@ -100,7 +100,12 @@ class ProtocolEngine:
                 if len(components) != 2:
                     raise Exception('MODULE-EXPORT command must have exactly one argument')
                 mod_name = components[1].decode('utf-8')
-                output_bundle.append(f'MODULE-EXPORT gcm.cache/{mod_name}.gcm')
+                output_bundle.append(f'PATHNAME ./gcm.cache/{mod_name}.gcm')
+            elif command.startswith(b'MODULE-COMPILED'):
+                components = command.split()
+                if len(components) != 2:
+                    raise Exception('MODULE-COMPILED command must have exactly one argument')
+                output_bundle.append('OK')
             else:
                 raise Exception(f'Unrecognized command: {command.decode("utf-8")}')
         return output_bundle
