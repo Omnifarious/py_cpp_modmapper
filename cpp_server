@@ -1,0 +1,141 @@
+#!/usr/bin/env /usr/bin/python3
+import asyncio
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from os import environ as env
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+from typing import AsyncIterator, TypeAlias
+
+
+"""
+ An attempt to implement the protocol described in
+ https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2020/p1184r2.pdf
+ except that description is out-of-date and this attempts to reach parity with
+ the implementation in libcody.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class GccSession:
+    reader: asyncio.StreamReader
+    writer: asyncio.StreamWriter
+    proc: asyncio.subprocess.Process
+
+
+@asynccontextmanager
+async def subordinate_gcc(gcc_command: list[str], id: str = 'top')\
+        -> AsyncIterator[GccSession]:
+    gcc_sock: socket.socket | None
+    my_sock: socket.socket | None
+    gcc_sock, my_sock = socket.socketpair()
+
+    me_comm = [f'-fmodule-mapper=<{gcc_sock.fileno()}>{gcc_sock.fileno()}?{id}']
+    gcc: asyncio.subprocess.Process | None = None
+    reader: asyncio.StreamReader | None
+    writer: asyncio.StreamWriter | None = None
+    try:
+        gcc = await asyncio.create_subprocess_exec(
+            *gcc_command, *me_comm,
+            stdin=subprocess.DEVNULL,
+            pass_fds=(gcc_sock.fileno(),)
+        )
+        gcc_sock.close()
+        gcc_sock = None
+        my_sock.setblocking(False)
+        reader, writer = await asyncio.open_connection(sock=my_sock)
+        my_sock = None
+        yield GccSession(reader, writer, gcc)
+    finally:
+        if gcc_sock is not None:
+            gcc_sock.close()
+        if my_sock is not None:
+            my_sock.close()
+        if writer is not None:
+            writer.close()
+            await writer.wait_closed()
+        if gcc is not None:
+            try:
+                await asyncio.wait_for(gcc.wait(), timeout=0.1)
+            except asyncio.TimeoutError:
+                gcc.terminate()
+                try:
+                    await asyncio.wait_for(gcc.wait(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    gcc.kill()
+                    await gcc.wait()
+
+
+class ProtocolEngine:
+    """Just trying to encapsulate the protocol logic here."""
+    def __init__(self):
+        self.state = 0
+
+    def process_command_bundle(self, command_bundle: list[bytes]) -> list[str]:
+        output_bundle: list[str] = []
+        for command in command_bundle:
+            if command.startswith(b'HELLO'):
+                if self.state != 0:
+                    raise Exception('Protocol error: HELLO received after other commands')
+                components = command.split()
+                if components[1] != b'1':
+                    raise Exception('Unsupported protocol version')
+                if components[2] != b'GCC':
+                    raise Exception('Unsupported protocol flavor')
+                print(f"ident string \"{components[3].decode('utf-8')}\"", file=sys.stderr)
+                output_bundle.append('HELLO 1 python_cpp_server')
+                self.state = 1
+            elif command.startswith(b'MODULE-REPO'):
+                components = command.split()
+                if len(components) != 1:
+                    raise Exception('MODULE-REPO command must have no arguments')
+                output_bundle.append('MODULE-REPO gcm.cache')
+            elif command.startswith(b'INCLUDE-TRANSLATE'):
+                output_bundle.append('BOOL TRUE')
+            elif command.startswith(b'MODULE-EXPORT'):
+                components = command.split()
+                if len(components) != 2:
+                    raise Exception('MODULE-EXPORT command must have exactly one argument')
+                mod_name = components[1].decode('utf-8')
+                output_bundle.append(f'MODULE-EXPORT gcm.cache/{mod_name}.gcm')
+            else:
+                raise Exception(f'Unrecognized command: {command.decode("utf-8")}')
+        return output_bundle
+
+async def compile_module(gcc_command: list[str]):
+    async with subordinate_gcc(gcc_command) as session:
+        reader, writer = session.reader, session.writer
+        protocol_engine = ProtocolEngine()
+        line = await reader.readline()
+        command_bundle: list[bytes] = []
+        while len(line) > 0:
+            trailing_semicolon = line.endswith(b';\n')
+            if trailing_semicolon:
+                line = line[:-2] + b'\n'
+            command_bundle.append(line)
+            if not trailing_semicolon:
+                output_bundle = protocol_engine.process_command_bundle(command_bundle)
+                writer.write((' ;\n'.join(output_bundle) + '\n').encode('utf-8'))
+                command_bundle = []
+                await writer.drain()
+            line = await reader.readline()
+        if len(command_bundle) > 0:
+            raise Exception(f'Incomplete command bundle: {command_bundle!r}')
+        writer.close()
+        await writer.wait_closed()
+    assert session.proc.returncode is not None
+    return session.proc.returncode
+
+
+async def main(argv: list[str]):
+    if len(argv) < 2:
+        print(f"Usage: {argv[0]} <gcc-command> [args...]", file=sys.stderr)
+        sys.exit(1)
+    sys.exit(await compile_module(argv[1:]))
+
+
+if __name__ == '__main__':
+    asyncio.run(main(sys.argv))
