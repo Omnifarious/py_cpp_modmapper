@@ -116,7 +116,7 @@ def join_command(words: list[str]) -> bytes:
                 elif c == b'\\':
                     encoded.extend(b"\\\\")
                 # SPACE or DEL
-                elif c < 0x20 or c == 0x7f:
+                elif c < 0x20 or c >= 0x7f:
                     encoded.extend(f"\\{c:02x}".encode('ascii'))
                 else:
                     encoded.append(c)
