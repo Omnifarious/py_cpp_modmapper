@@ -2,14 +2,12 @@
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from os import environ as env
-import os
 from pathlib import Path
 import socket
 import subprocess
 import sys
 from typing import AsyncIterator, TypeAlias
-import re
+import regex
 
 from pyparsing import lineStart
 
@@ -22,6 +20,9 @@ from pyparsing import lineStart
  A somewhat out-of-date version of this library can be found on github at
  https://github.com/urnathan/libcody
 """
+
+
+HEX_RE = regex.compile(b'[0-9a-fA-F]{1,2}')
 
 
 def split_command(line: bytes) -> list[str]:
@@ -67,7 +68,7 @@ def split_command(line: bytes) -> list[str]:
                         i += 1
                     else:
                         # Try to decode hex
-                        hex_match = re.match(b'[0-9a-f]{1,2}', line[i:])
+                        hex_match = HEX_RE.match(line[i:])
                         if hex_match:
                             hex_val = int(hex_match.group(), 16)
                             current_word.append(hex_val)
@@ -90,7 +91,7 @@ def split_command(line: bytes) -> list[str]:
 
     return words
 
-SAFE_RE = re.compile(b'[-+_/%.A-Za-z0-9]+')
+SAFE_RE = regex.compile(b'[-+_/%.A-Za-z0-9]+')
 
 def join_command(words: list[str]) -> bytes:
     encoded_words = []
@@ -178,9 +179,36 @@ async def subordinate_gcc(gcc_command: list[str], id: str = 'top')\
 
 class ProtocolEngine:
     """Just trying to encapsulate the protocol logic here."""
+
+    mod_name_part = r'(?:[\p{XID_Start}a-zA-Z_][\p{XID_Continue}a-zA-Z0-9_]*)'
+    mod_name_re = regex.compile(
+        f'^(?P<modname>{mod_name_part}(?:\\.{mod_name_part})*)'
+        f'(?P<fragment>:{mod_name_part})?$'
+    )
+
     def __init__(self):
         self.state = 0
         self.command_log = open("command_log.txt", "w", encoding="utf-8")
+
+    @staticmethod
+    def module_name_to_path(module_name: str) -> str:
+        modname_match = ProtocolEngine.mod_name_re.fullmatch(module_name)
+        if not modname_match:
+            raise Exception(f'Invalid module name: {module_name!r}')
+        modname_dict = modname_match.groupdict()
+        components = modname_dict['modname'].split('.')
+        assert(len(components) > 0)
+        assert(all(len(x) > 0 for x in components))
+        fragment = modname_dict['fragment']
+        if fragment is not None:
+            fragment = fragment[1:]
+        assert(fragment is None or len(fragment) > 0)
+        if fragment is not None:
+            components[-1] = f"{components[-1]}-{fragment}.gcm"
+        else:
+            components[-1] = f"{components[-1]}.gcm"
+        mod_path = Path('./gcm.cache')
+        return str(mod_path.joinpath(*components))
 
     def process_command_bundle(self, command_bundle: list[bytes]) -> list[list[str]]:
         print(f'Got command bundle: {command_bundle!r}', file=self.command_log)
@@ -209,7 +237,9 @@ class ProtocolEngine:
                 if len(words) != 2:
                     raise Exception('MODULE-EXPORT command must have exactly one argument')
                 mod_name = words[1]
-                output_bundle.append(['PATHNAME', f'./gcm.cache/{mod_name}.gcm'])
+                output_bundle.append(
+                    ['PATHNAME', self.module_name_to_path(mod_name)]
+                )
             elif verb == 'MODULE-COMPILED':
                 if len(words) != 2:
                     raise Exception('MODULE-COMPILED command must have exactly one argument')
@@ -234,7 +264,11 @@ async def compile_module(gcc_command: list[str]):
             command_bundle.append(line)
             if not trailing_semicolon:
                 output_bundle = protocol_engine.process_command_bundle(command_bundle)
-                writer.write(b' ;\n'.join(join_command(reply) for reply in output_bundle) + b'\n')
+                output_buf = b' ;\n'.join(
+                    join_command(reply) for reply in output_bundle
+                ) + b'\n'
+                writer.write(output_buf)
+                print(f"Sent: {output_buf!r}", file=protocol_engine.command_log)
                 command_bundle = []
                 await writer.drain()
             line = await reader.readline()
