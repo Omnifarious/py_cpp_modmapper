@@ -188,7 +188,52 @@ class ProtocolEngine:
 
     def __init__(self):
         self.state = 0
-        self.command_log = open("command_log.txt", "w", encoding="utf-8")
+        self.command_log = open("command_log.txt", "a", encoding="utf-8")
+        print("HEADER HEADER HEADER", file=self.command_log)
+        self._handlers = {
+            'HELLO': self._handle_hello,
+            'MODULE-REPO': self._handle_module_repo,
+            'INCLUDE-TRANSLATE': self._handle_include_translate,
+            'MODULE-EXPORT': self._handle_module_export,
+            'MODULE-COMPILED': self._handle_module_compiled,
+            'MODULE-IMPORT': self._handle_module_import,
+        }
+
+    def __del__(self):
+        self.command_log.close()
+
+    def _handle_hello(self, words: list[str]) -> list[str]:
+        if self.state != 0:
+            raise Exception('Protocol error: HELLO received after other commands')
+        if words[1] != '1':
+            raise Exception('Unsupported protocol version')
+        if words[2] != 'GCC':
+            raise Exception('Unsupported protocol flavor')
+        print(f"ident string \"{words[3]}\"", file=sys.stderr)
+        self.state = 1
+        return ['HELLO', '1', 'python_cpp_server']
+
+    def _handle_module_repo(self, words: list[str]) -> list[str]:
+        if len(words) != 1:
+            raise Exception('MODULE-REPO command must have no arguments')
+        return ['MODULE-REPO', './gcm.cache']
+
+    def _handle_module_import(self, words: list[str]) -> list[str]:
+        return ['PATHNAME', self.module_name_to_path(words[1])]
+
+    def _handle_include_translate(self, words: list[str]) -> list[str]:
+        return ['BOOL', 'TRUE']
+
+    def _handle_module_export(self, words: list[str]) -> list[str]:
+        if len(words) != 2:
+            raise Exception('MODULE-EXPORT command must have exactly one argument')
+        mod_name = words[1]
+        return ['PATHNAME', self.module_name_to_path(mod_name)]
+
+    def _handle_module_compiled(self, words: list[str]) -> list[str]:
+        if len(words) != 2:
+            raise Exception('MODULE-COMPILED command must have exactly one argument')
+        return ['OK']
 
     @staticmethod
     def module_name_to_path(module_name: str) -> str:
@@ -217,33 +262,9 @@ class ProtocolEngine:
             words = split_command(command)
             print(f'Parsed words: {words!r}', file=self.command_log)
             verb = words[0]
-            if verb == 'HELLO':
-                if self.state != 0:
-                    raise Exception('Protocol error: HELLO received after other commands')
-                if words[1] != '1':
-                    raise Exception('Unsupported protocol version')
-                if words[2] != 'GCC':
-                    raise Exception('Unsupported protocol flavor')
-                print(f"ident string \"{words[3]}\"", file=sys.stderr)
-                output_bundle.append(['HELLO', '1', 'python_cpp_server'])
-                self.state = 1
-            elif verb == 'MODULE-REPO':
-                if len(words) != 1:
-                    raise Exception('MODULE-REPO command must have no arguments')
-                output_bundle.append(['MODULE-REPO', './gcm.cache'])
-            elif verb == 'INCLUDE-TRANSLATE':
-                output_bundle.append(['BOOL', 'TRUE'])
-            elif verb == 'MODULE-EXPORT':
-                if len(words) != 2:
-                    raise Exception('MODULE-EXPORT command must have exactly one argument')
-                mod_name = words[1]
-                output_bundle.append(
-                    ['PATHNAME', self.module_name_to_path(mod_name)]
-                )
-            elif verb == 'MODULE-COMPILED':
-                if len(words) != 2:
-                    raise Exception('MODULE-COMPILED command must have exactly one argument')
-                output_bundle.append(['OK'])
+            handler = self._handlers.get(verb)
+            if handler:
+                output_bundle.append(handler(words))
             else:
                 raise Exception(f'Unrecognized command: {command.decode("utf-8")}')
         print(f'Replied with: {output_bundle!r}', file=self.command_log)
