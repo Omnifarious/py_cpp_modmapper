@@ -6,7 +6,7 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
-from typing import AsyncIterator, TypeAlias
+from typing import AsyncIterator
 import regex
 
 from pyparsing import lineStart
