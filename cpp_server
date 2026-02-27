@@ -44,6 +44,7 @@ class Configuration:
     module_bmi_root: Path
     module_object_root: Path
     project_root: Path
+    hash_flags: bool
     real_gcc_executable: Path
     gcc_options: GccOptions
     logger: logging.Logger
@@ -324,6 +325,13 @@ class ProtocolEngine:
                 ProtocolEngine.db_env.close()
                 ProtocolEngine.db_env = None
 
+    def flag_dir(self, path: Path) -> Path:
+        # This will use a hash self.config.gcc_options.flags someday
+        if not self.config.hash_flags:
+            return path
+        else:
+            return path / "prototype"
+
     def _handle_hello(self, words: list[str]) -> list[str]:
         if self.state != 0:
             raise Exception('Protocol error: HELLO received after other commands')
@@ -337,7 +345,7 @@ class ProtocolEngine:
     def _handle_module_repo(self, words: list[str]) -> list[str]:
         if len(words) != 1:
             raise Exception('MODULE-REPO command must have no arguments')
-        return ['MODULE-REPO', str(self.config.module_bmi_root / 'prototype')]
+        return ['MODULE-REPO', str(self.flag_dir(self.config.module_bmi_root))]
 
     def _handle_module_import(
             self, words: list[str]
@@ -409,8 +417,7 @@ class ProtocolEngine:
             components[-1] = f"{components[-1]}.{suffix}"
         mod_path = Path('.')
         if flag_swizzle:
-            # This will use a hash self.config.gcc_options.flags someday
-            mod_path = mod_path / "prototype"
+            mod_path = self.flag_dir(mod_path)
         mod_path = mod_path.joinpath(*components)
         return mod_path
 
@@ -494,6 +501,7 @@ async def main(argv: list[str]):
         module_src_root=medir / 'modules',
         module_bmi_root=medir / 'gcm.cache',
         module_object_root=medir / 'build' / 'modules',
+        hash_flags=True,
         project_root=medir,
         real_gcc_executable=Path('/opt/gcc-latest/bin/g++'),
         gcc_options=parse_gcc_arguments(argv),
