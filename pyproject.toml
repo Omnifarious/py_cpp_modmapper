@@ -1,0 +1,57 @@
+[build-system]
+# We use setuptools and setuptools-scm to handle versioning from Mercurial/Git tags.
+requires = ["setuptools>=61.0", "setuptools-scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "py_cpp_modmapper"
+# Dynamic versioning based on VCS tags.
+dynamic = ["version"]
+description = "A C++ module mapper for GCC using a Python-based protocol engine."
+# readme = "README.md"  # No README.md found in project root. Please create one if desired.
+license = { file = "LICENSE" }
+authors = [
+    { name = "Eric Hopper" }, # Name from environment
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: POSIX :: Linux",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "regex",
+    "lmdb",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[project.scripts]
+py-cpp-modmapper = "py_cpp_modmapper.main:modmain"
+
+[tool.setuptools]
+# Automatically find packages in the root directory.
+packages = ["py_cpp_modmapper"]
+
+[tool.setuptools.package-data]
+# Include test project files as part of the package data for testing.
+"*" = ["test_cpp_project/**/*"]
+
+[tool.setuptools_scm]
+# setuptools-scm works with both Git and Mercurial.
+# No extra configuration needed for basic support.
+
+[tool.pytest.ini_options]
+# Configuration for running tests against test_cpp_project.
+testpaths = ["tests"] # You will need to create a 'tests' directory.
+asyncio_mode = "auto"
+
+# Note on defaulted values:
+# - build-system.backend is not defaulted, it's mandatory if you use build-system.
+# - project.gui-scripts: Not used, so left out (defaults to empty).
+# - tool.setuptools.zip-safe: Default is False in modern setuptools.
+# - tool.setuptools_scm.version_scheme: Default is 'guess-next-dev'.

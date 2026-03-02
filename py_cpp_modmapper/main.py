@@ -565,6 +565,8 @@ async def main(argv: list[str]):
         sys.exit(1)
     sys.exit(await compile_module(c, argv[1:], '@TOP'))
 
+def modmain():
+    asyncio.run(main(sys.argv))
 
 if __name__ == '__main__':
-    asyncio.run(main(sys.argv))
+    modmain()
