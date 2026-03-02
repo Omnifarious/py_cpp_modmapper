@@ -549,8 +549,7 @@ async def main(argv: list[str]):
         filemode='a'
     )
     logger = logging.getLogger('cpp_server')
-    me = Path(__file__).resolve()
-    medir = me.parent
+    medir = Path(os.getcwd())
     c = Configuration(
         module_src_root=medir / 'modules',
         module_bmi_root=medir / 'gcm.cache',
