@@ -349,6 +349,7 @@ class ProtocolEngine:
         if ProtocolEngine.db_env is None:
             assert ProtocolEngine.db_path is None
             ProtocolEngine.db_path = local_db_path
+            local_db_path.parent.mkdir(parents=True, exist_ok=True)
             ProtocolEngine.db_env = lmdb.Environment(
                 path=str(ProtocolEngine.db_path),
                 readonly=False, create=True,
