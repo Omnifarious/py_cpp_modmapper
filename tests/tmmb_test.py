@@ -1,17 +1,33 @@
 import subprocess
 from pathlib import Path
 import shutil
+
+import pytest
+
 from py_cpp_modmapper.main import main as modmapper_main
 from contextlib import chdir
 import glob
 
-async def test_cpp_project_compilation():
-    project_root = Path(__file__).parent.parent.resolve()
-    test_dir = project_root / 'test_cpp_project'
+@pytest.fixture(scope='session')
+def project_root(pytestconfig) -> Path:
+    return Path(pytestconfig.rootpath).resolve()
 
-    shutil.rmtree(test_dir / 'build', ignore_errors=True)
-    shutil.rmtree(test_dir / 'foo', ignore_errors=True)
-    shutil.rmtree(test_dir / 'gcm.cache', ignore_errors=True)
+@pytest.fixture(scope='module')
+def cpp_project(tmp_path_factory, project_root):
+    src_template = project_root / 'test_cpp_project'
+    dest = tmp_path_factory.mktemp('test_cpp_project')
+    dest.rmdir()
+    shutil.copytree(src_template, dest)
+    yield dest
+
+async def test_cpp_project_compilation(cpp_project: Path):
+    test_dir = cpp_project
+
+    assert not (test_dir / 'build').exists()
+    assert not (test_dir / 'foo').exists()
+    assert not (test_dir / 'gcm.cache').exists()
+    assert not (test_dir / 'cpp_server.log').exists()
+
     # Ensure build directory exists
     (test_dir / 'build').mkdir(exist_ok=True)
 
