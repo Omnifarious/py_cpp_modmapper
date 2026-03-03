@@ -1,10 +1,11 @@
 import subprocess
-import os
-import pytest
 from pathlib import Path
 import shutil
+from py_cpp_modmapper.main import main as modmapper_main
+from contextlib import chdir
+import glob
 
-def test_cpp_project_compilation():
+async def test_cpp_project_compilation():
     project_root = Path(__file__).parent.parent.resolve()
     test_dir = project_root / 'test_cpp_project'
 
@@ -14,25 +15,37 @@ def test_cpp_project_compilation():
     # Ensure build directory exists
     (test_dir / 'build').mkdir(exist_ok=True)
 
-    env = os.environ.copy()
-    env['PYTHONPATH'] = str(project_root)
+    # env = os.environ.copy()
+    # env['PYTHONPATH'] = str(project_root)
 
-    # PYTHONPATH=$(hg root) python3 -m py_cpp_modmapper.main -fmodules -march=native -mtune=native -std=c++23 -c src/top-impl.cpp -o build/top-impl.o
-    cmd1 = ['python3', '-m', 'py_cpp_modmapper.main', '-fmodules', '-march=native', '-mtune=native', '-std=c++23', '-c', 'src/top-impl.cpp', '-o', 'build/top-impl.o']
-    result = subprocess.run(cmd1, cwd=test_dir, env=env, capture_output=True, text=True)
-    assert result.returncode == 0, f"Command 1 failed: {' '.join(cmd1)}\nStdout: {result.stdout}\nStderr: {result.stderr}"
+    with chdir(test_dir):
+        # python3 -m py_cpp_modmapper.main -fmodules -march=native -mtune=native -std=c++23 -c src/top-impl.cpp -o build/top-impl.o
+        cmd1 = ['py_cpp_modmapper.main', '-fmodules', '-march=native', '-mtune=native', '-std=c++23', '-c', 'src/top-impl.cpp', '-o', 'build/top-impl.o']
+        try:
+            await modmapper_main(cmd1)
+        except SystemExit as e:
+            assert e.code == 0 or e.code is None, f"Command 1 failed with exit code {e.code}"
 
-    # PYTHONPATH=$(hg root) python3 -m py_cpp_modmapper.main -fmodules -march=native -mtune=native -std=c++23 -c src/main.cpp -o build/main.o
-    cmd2 = ['python3', '-m', 'py_cpp_modmapper.main', '-fmodules', '-march=native', '-mtune=native', '-std=c++23', '-c', 'src/main.cpp', '-o', 'build/main.o']
-    result = subprocess.run(cmd2, cwd=test_dir, env=env, capture_output=True, text=True)
-    assert result.returncode == 0, f"Command 2 failed: {' '.join(cmd2)}\nStdout: {result.stdout}\nStderr: {result.stderr}"
+        # python3 -m py_cpp_modmapper.main -fmodules -march=native -mtune=native -std=c++23 -c src/main.cpp -o build/main.o
+        cmd2 = ['py_cpp_modmapper.main', '-fmodules', '-march=native', '-mtune=native', '-std=c++23', '-c', 'src/main.cpp', '-o', 'build/main.o']
+        try:
+            await modmapper_main(cmd2)
+        except SystemExit as e:
+            assert e.code == 0 or e.code is None, f"Command 2 failed with exit code {e.code}"
 
-    # PYTHONPATH=$(hg root) python3 -m py_cpp_modmapper.main -fmodules -march=native -mtune=native -o foo build/*.o $(find modules -name '*.o')
-    # Using shell=True for expansion of build/*.o and $(find ...)
-    cmd3 = "python3 -m py_cpp_modmapper.main -fmodules -march=native -mtune=native -o foo build/*.o $(find modules -name '*.o')"
-    result = subprocess.run(cmd3, cwd=test_dir, env=env, shell=True, capture_output=True, text=True)
-    assert result.returncode == 0, f"Command 3 failed: {cmd3}\nStdout: {result.stdout}\nStderr: {result.stderr}"
+        # python3 -m py_cpp_modmapper.main -fmodules -march=native -mtune=native -o foo build/*.o $(find modules -name '*.o')
+        # Handle globbing manually
+        objs = glob.glob('build/*.o')
+        module_objs = []
+        for p in Path('modules').rglob('*.o'):
+            module_objs.append(str(p))
 
-    # ./foo
-    result = subprocess.run(['./foo'], cwd=test_dir, capture_output=True, text=True)
-    assert result.returncode == 0, f"./foo failed\nStdout: {result.stdout}\nStderr: {result.stderr}"
+        cmd3 = ['py_cpp_modmapper.main', '-fmodules', '-march=native', '-mtune=native', '-o', 'foo'] + objs + module_objs
+        try:
+            await modmapper_main(cmd3)
+        except SystemExit as e:
+            assert e.code == 0 or e.code is None, f"Command 3 failed with exit code {e.code}"
+
+        # ./foo
+        result = subprocess.run(['./foo'], capture_output=True, text=True)
+        assert result.returncode == 0, f"./foo failed\nStdout: {result.stdout}\nStderr: {result.stderr}"
