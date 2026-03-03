@@ -50,6 +50,9 @@ packages = ["py_cpp_modmapper"]
 testpaths = ["tests"] # You will need to create a 'tests' directory.
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "cpp_project_src: The source directory for the C++ project to clone for the test."
+]
 
 # Note on defaulted values:
 # - build-system.backend is not defaulted, it's mandatory if you use build-system.
