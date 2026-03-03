@@ -1,4 +1,5 @@
 /.idea/
+/py_cpp_modmapper.egg-info/
 *.gcm
 build/
 build-*/
