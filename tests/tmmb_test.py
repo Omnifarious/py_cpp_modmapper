@@ -62,3 +62,18 @@ async def test_cpp_project_compilation(cpp_project: Path):
             f"./foo failed\n"
             f"Stdout: {result.stdout}\n"
             f"Stderr: {result.stderr}")
+
+        expected_output = (
+            'Top: a == "thing1" && b == "thing2"\n'
+            'Top: a == "middle_a" && b == "ma_ps thing"\n'
+            'Top: a == "middle b" && b == "mb_ps thing"\n'
+            'Top: a == "middle_a" && b == "bottom"\n'
+            'Top: a == "middle b" && b == "bottom"\n'
+            'Value: 3325.26\n'
+            'Value: 4782969\n'
+        )
+        # Check output, allowing for some floating point representation differences if necessary
+        # but based on the code it's just std::cout << value
+        # Actually std::cout for double 3325.256730079651 might be 3325.26 by default (6 digits)
+        
+        assert result.stdout == expected_output
