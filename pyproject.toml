@@ -20,14 +20,14 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "regex",
-    "lmdb",
+    "regex>=2024.11",
+    "lmdb>=1.4",
 ]
 
 [project.optional-dependencies]
 test = [
-    "pytest",
-    "pytest-asyncio",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
 ]
 
 [project.scripts]
