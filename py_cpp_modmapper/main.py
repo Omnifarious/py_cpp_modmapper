@@ -1,7 +1,6 @@
 #!/usr/bin/env /usr/bin/python3
 import asyncio
 import os
-import pickle
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import logging
@@ -12,8 +11,8 @@ import sys
 from typing import Optional, TypeAlias
 from collections.abc import Awaitable, AsyncIterator
 import regex
-import lmdb
 
+from .dependency_db import DependencyDB
 
 """
  An attempt to implement the protocol described in
@@ -24,13 +23,6 @@ import lmdb
  A somewhat out-of-date version of this library can be found on github at
  https://github.com/urnathan/libcody
 """
-
-
-# lmdb.Environment(metasync=False, writemap=True, max_readers=8000)
-# with env.begin(write=True) as txn:
-#     txn.put(key, value)
-# with env.begin() as txn:
-#     value = txn.get(key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,29 +42,6 @@ class Configuration:
     real_gcc_executable: Path
     gcc_options: GccOptions
     logger: logging.Logger
-
-@dataclass(frozen=True, slots=True)
-class DBModuleKey:
-    modname: str
-    option_hash: str
-
-@dataclass(frozen=True, slots=True)
-class DBHeaderKey:
-    header_path: str
-
-DBKey: TypeAlias = DBModuleKey | DBHeaderKey
-
-@dataclass(slots=True)
-class DBModuleValue:
-    stat_data: os.stat_result
-    dep_modules: list[str]
-    dep_headers: list[str]
-
-@dataclass(slots=True)
-class DBHeaderValue:
-    stat_data: os.stat_result
-
-DBValue: TypeAlias = DBModuleValue | DBHeaderValue
 
 Compilation: TypeAlias = Awaitable[list[str]]
 
@@ -142,36 +111,6 @@ def parse_gcc_arguments(argv: list[str]) -> GccOptions:
 
     return GccOptions(inputs=inputs, output=output, options=options, mode=mode)
 
-
-def serialize_key(key: DBKey) -> bytes:
-    if isinstance(key, DBModuleKey):
-        return f"m:{key.modname}\0{key.option_hash}".encode('utf-8')
-    elif isinstance(key, DBHeaderKey):
-        return f"h:{key.header_path}".encode('utf-8')
-    else:
-        raise Exception(f"Unknown key type: {key!r}")
-
-def deserialize_key(key_bytes: bytes) -> DBKey:
-    key_str = key_bytes.decode('utf-8')
-    if key_str.startswith('m:'):
-        modname, option_hash = key_str[2:].split('\0', 1)
-        return DBModuleKey(modname, option_hash)
-    elif key_str.startswith('h:'):
-        header_path = key_str[2:]
-        return DBHeaderKey(header_path)
-    else:
-        raise Exception(f"Unknown key type: {key_str[0:2]!r}")
-
-def serialize_value(value: DBValue) -> bytes:
-    if not isinstance(value, (DBModuleValue, DBHeaderValue)):
-        raise Exception(f"Unknown value type: {value!r}")
-    return pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
-
-def deserialize_value(value_bytes: bytes) -> DBValue:
-    value = pickle.loads(value_bytes)
-    if not isinstance(value, (DBModuleValue, DBHeaderValue)):
-        raise Exception(f"Unknown value type: {value!r}")
-    return value
 
 HEX_RE = regex.compile(b'[0-9a-fA-F]{1,2}')
 
@@ -338,29 +277,11 @@ class ProtocolEngine:
         f'^(?P<modname>{mod_name_part}(?:\\.{mod_name_part})*)'
         f'(?P<fragment>:{mod_name_part})?$'
     )
-    db_env: lmdb.Environment | None = None
-    db_path: Path | None = None
-    engine_count = 0
 
     def __init__(self, c: Configuration, level: str):
         self.config = c
         self.level = level
-        local_db_path = c.module_bmi_root / "module_db.mdb"
-        if ProtocolEngine.db_env is None:
-            assert ProtocolEngine.db_path is None
-            ProtocolEngine.db_path = local_db_path
-            local_db_path.parent.mkdir(parents=True, exist_ok=True)
-            ProtocolEngine.db_env = lmdb.Environment(
-                path=str(ProtocolEngine.db_path),
-                readonly=False, create=True,
-                metasync=False, writemap=True, max_readers=8000
-            )
-        else:
-            assert ProtocolEngine.db_path == local_db_path, \
-                "Configuration BMI root changed between "\
-                "instantiations of ProtocolEngine "\
-                f"({ProtocolEngine.db_path!r} != {local_db_path!r})"
-        ProtocolEngine.engine_count += 1
+        self.dependencies = DependencyDB(c.module_bmi_root)
         self.state = 0
         self.config.logger.debug(f"{level}: [========== START ==========]")
         self._handlers = {
@@ -371,14 +292,6 @@ class ProtocolEngine:
             'MODULE-COMPILED': self._handle_module_compiled,
             'MODULE-IMPORT': self._handle_module_import,
         }
-
-    def __del__(self):
-        if ProtocolEngine.engine_count > 0:
-            ProtocolEngine.engine_count -= 1
-        if ProtocolEngine.engine_count == 0:
-            if ProtocolEngine.db_env is not None:
-                ProtocolEngine.db_env.close()
-                ProtocolEngine.db_env = None
 
     def flag_dir(self, path: Path) -> Path:
         # This will use a hash self.config.gcc_options.flags someday
