@@ -99,5 +99,3 @@ class DependencyDB:
                 DependencyDB.db_env.close()
                 DependencyDB.db_env = None
                 DependencyDB.db_path = None
-
-
