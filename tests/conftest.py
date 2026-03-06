@@ -28,9 +28,5 @@ def cpp_project(tmp_path_factory, project_root, request):
     # Using the directory name in the temp path helps with debugging
     dest = tmp_path_factory.mktemp(src_dir_name)
 
-    # Since mktemp creates the directory, we need to remove it for copytree
-    if dest.exists():
-        shutil.rmtree(dest)
-
-    shutil.copytree(src_template, dest)
+    shutil.copytree(src_template, dest, dirs_exist_ok=True)
     yield dest
