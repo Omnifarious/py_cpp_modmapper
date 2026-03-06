@@ -133,7 +133,7 @@ class ProtocolEngine:
         if words[2] != 'GCC':
             raise Exception('Unsupported protocol flavor')
         self.state = 1
-        return ['HELLO', '1', 'python_cpp_server']
+        return ['HELLO', '1', 'py_cpp_modmapper',]
 
     def _handle_module_repo(self, words: list[str]) -> list[str]:
         if len(words) != 1:
