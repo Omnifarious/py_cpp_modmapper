@@ -4,6 +4,7 @@ import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import logging
+from enum import Enum
 from pathlib import Path
 import socket
 import subprocess
@@ -93,6 +94,13 @@ async def subordinate_gcc(
                     gcc.kill()
                     await gcc.wait()
 
+class EngineStates(Enum):
+    START = 0
+    HELLO = 1
+    IMPORT_NO_EXPORT = 3
+    MODULE_EXPORT = 4
+    IMPORT_EXPORT = 5
+    FINISHED = 6
 
 class ProtocolEngine:
     """Just trying to encapsulate the protocol logic here."""
@@ -107,7 +115,10 @@ class ProtocolEngine:
         self.config = c
         self.level = level
         self.dependencies = DependencyDB(c.module_bmi_root)
-        self.state = 0
+        self.state = EngineStates.START
+        self.includes: set[str] = set()
+        self.modules: set[str] = set()
+        self.this_module: str | None = None
         self.config.logger.debug(f"{level}: [========== START ==========]")
         self._handlers = {
             'HELLO': self._handle_hello,
@@ -126,18 +137,20 @@ class ProtocolEngine:
             return path / "prototype"
 
     def _handle_hello(self, words: list[str]) -> list[str]:
-        if self.state != 0:
+        if self.state != EngineStates.START:
             raise Exception('Protocol error: HELLO received after other commands')
         if words[1] != '1':
             raise Exception('Unsupported protocol version')
         if words[2] != 'GCC':
             raise Exception('Unsupported protocol flavor')
-        self.state = 1
+        self.state = EngineStates.HELLO
         return ['HELLO', '1', 'py_cpp_modmapper',]
 
     def _handle_module_repo(self, words: list[str]) -> list[str]:
         if len(words) != 1:
             raise Exception('MODULE-REPO command must have no arguments')
+        if self.state != EngineStates.HELLO:
+            raise Exception('Protocol error: Unexpected MODULE-REPO in {self.state.name} state')
         return ['MODULE-REPO', str(self.flag_dir(self.config.module_bmi_root))]
 
     def _handle_module_import(
@@ -145,6 +158,13 @@ class ProtocolEngine:
     ) -> Compilation | list[str]:
         if len(words) != 2:
             raise Exception('MODULE-IMPORT command must have exactly one argument')
+        if self.state == EngineStates.HELLO:
+            self.state = EngineStates.IMPORT_NO_EXPORT
+        elif self.state == EngineStates.MODULE_EXPORT:
+            self.state = EngineStates.IMPORT_EXPORT
+        elif self.state not in (EngineStates.IMPORT_EXPORT, EngineStates.IMPORT_NO_EXPORT):
+            raise Exception(f'Unexpected MODULE-IMPORT in {self.state.name} state')
+        self.modules.add(words[1])
         mod_path = self.module_name_to_path(
             words[1], 'cppm', flag_swizzle=False
         )
@@ -174,11 +194,19 @@ class ProtocolEngine:
         return wait_for_compilation()
 
     def _handle_include_translate(self, words: list[str]) -> list[str]:
+        if self.state != EngineStates.HELLO:
+            raise Exception(f'Unexpected INCLUDE-TRANSLATE in {self.state.name} state')
+        self.includes.add(words[1])
         return ['BOOL', 'TRUE']
 
     def _handle_module_export(self, words: list[str]) -> list[str]:
         if len(words) != 2:
             raise Exception('MODULE-EXPORT command must have exactly one argument')
+        if self.state != EngineStates.HELLO:
+            raise Exception(f'Unexpected MODULE-EXPORT in {self.state.name} state')
+        self.state = EngineStates.MODULE_EXPORT
+        assert self.this_module is None
+        self.this_module = words[1]
         mod_name = words[1]
         mod_path = self.module_name_to_path(mod_name, 'gcm')
         mod_path = self.config.module_bmi_root / mod_path
@@ -188,6 +216,19 @@ class ProtocolEngine:
     def _handle_module_compiled(self, words: list[str]) -> list[str]:
         if len(words) != 2:
             raise Exception('MODULE-COMPILED command must have exactly one argument')
+        if self.state not in (EngineStates.MODULE_EXPORT, EngineStates.IMPORT_EXPORT):
+            raise Exception(f'Unexpected MODULE-COMPILED in {self.state.name} state')
+        assert self.this_module is not None
+        if words[1] != self.this_module:
+            raise Exception(
+                f'MODULE-COMPILED command for module {words[1]} '
+                f'without preceding MODULE-EXPORT for module {self.this_module}'
+            )
+        self.state = EngineStates.FINISHED
+        self.this_module = None
+        self.config.logger.debug(f"{self.level}: [Module compiled: {words[1]} "
+                                 f"includes: {self.includes} | "
+                                 f"modules: {self.modules}]")
         return ['OK']
 
     def module_name_to_path(
