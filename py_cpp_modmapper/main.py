@@ -275,19 +275,21 @@ async def compile_module(
     assert session.proc.returncode is not None
     return session.proc.returncode
 
+def setup_logging(logger: logging.Logger):
+    handler = logging.FileHandler('cpp_mapper.log', mode='a')
+    formatter = logging.Formatter('%(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
 
 async def main(argv: list[str]):
     """
     This is intended as something to run _instead_ of g++, and will wrap the
     compilation to ensure that any modules are properly compiled.
     """
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(message)s',
-        filename='cpp_server.log',
-        filemode='a'
-    )
-    logger = logging.getLogger('cpp_server')
+    logger = logging.getLogger('cpp_mapper')
+    if not logger.handlers:
+        setup_logging(logger)
     medir = Path(os.getcwd())
     c = Configuration(
         module_src_root=medir / 'modules',
