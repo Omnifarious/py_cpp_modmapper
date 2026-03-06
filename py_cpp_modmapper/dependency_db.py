@@ -27,7 +27,8 @@ DBKey: TypeAlias = DBModuleKey | DBHeaderKey
 
 @dataclass(slots=True)
 class DBModuleValue:
-    stat_data: os.stat_result
+    src_stat_data: os.stat_result
+    dest_stat_data: os.stat_result
     dep_modules: list[str]
     dep_headers: list[str]
 
