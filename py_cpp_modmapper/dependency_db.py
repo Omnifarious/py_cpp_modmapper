@@ -1,3 +1,4 @@
+import logging
 import os
 import pickle
 from dataclasses import dataclass
@@ -12,6 +13,9 @@ import lmdb
 #     txn.put(key, value)
 # with env.begin() as txn:
 #     value = txn.get(key)
+
+
+logger = logging.getLogger("py_cpp_modmapper.dependency_db")
 
 
 @dataclass(frozen=True, slots=True)
