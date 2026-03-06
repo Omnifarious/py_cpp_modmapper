@@ -12,7 +12,8 @@ from typing import TypeAlias
 from collections.abc import Awaitable, AsyncIterator
 import regex
 
-from .parsing import parse_gcc_arguments, split_command, join_command, GccOptions
+from .parsing import (parse_gcc_arguments, GccOptions,
+                      split_command, join_command)
 from .dependency_db import DependencyDB
 
 """
