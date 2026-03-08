@@ -104,3 +104,61 @@ class DependencyDB:
                 DependencyDB.db_env.close()
                 DependencyDB.db_env = None
                 DependencyDB.db_path = None
+
+    def __repr__(self):
+        return (f"DependencyDB(engine_count={DependencyDB.engine_count}, "
+                f"db_path={DependencyDB.db_path})")
+
+    def dump(self) -> str:
+        mem_db: dict[DBKey, DBValue] = {}
+        with self.db_env.begin() as txn:
+            mem_db = {
+                deserialize_key(key): deserialize_value(value)
+                for key, value in txn.cursor()
+            }
+
+        def keyfunc(key: DBKey):
+            if isinstance(key, DBModuleKey):
+                return 0, key.option_hash, key.modname
+            elif isinstance(key, DBHeaderKey):
+                return 1, key.header_path
+            else:
+                assert False, f"Unknown key type: {key!r}"
+
+        mem_db = {k: mem_db[k] for k in sorted(mem_db.keys(), key=keyfunc)}
+        used: set[DBKey] = set()
+        tsorted: list[DBKey] = []
+        key_interns = {k: k for k in mem_db.keys()}
+        def tsort_helper(key: DBKey, value: DBValue):
+            if key in used:
+                return
+            used.add(key)
+            if isinstance(key, DBHeaderKey):
+                tsorted.append(key)
+                return
+            assert isinstance(key, DBModuleKey), f"Unknown key type: {key!r}"
+            assert value is not None, f"Missing value for key {key!r}"
+            assert isinstance(value, DBModuleValue), \
+                f"Unexpected value type {type(value)!r} for key {key!r}"
+            def handle_key(k: DBKey):
+                k = key_interns.get(k)
+                if k is not None:
+                    tsort_helper(k, mem_db[k])
+            for dep in value.dep_modules:
+                handle_key(DBModuleKey(dep, key.option_hash))
+            for dep in value.dep_headers:
+                handle_key(DBHeaderKey(dep))
+            tsorted.append(key)
+        for key, value in mem_db.items():
+            if key not in used:
+                if isinstance(key, DBModuleKey):
+                    tsort_helper(key, value)
+                else:
+                    # All headers occur after all modules because of the sorting
+                    # so this just adds orphans to the end of the list
+                    tsorted.append(key)
+
+        used = None
+        key_interns = None
+
+        return "\n".join(f"{key!r}: {mem_db[key]!r}" for key in tsorted)
