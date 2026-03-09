@@ -34,6 +34,7 @@ DBKey: TypeAlias = DBModuleKey | DBHeaderKey
 class DBModuleValue:
     src_stat_data: os.stat_result
     dest_stat_data: os.stat_result
+    module_path: str
     dep_modules: list[str]
     dep_headers: list[str]
 
