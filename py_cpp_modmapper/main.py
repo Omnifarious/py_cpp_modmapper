@@ -114,7 +114,11 @@ class ProtocolEngine:
     def __init__(self, c: Configuration, level: str):
         self.config = c
         self.level = level
-        self.dependencies = DependencyDB(c.module_bmi_root)
+        c.module_bmi_root.mkdir(parents=True, exist_ok=True)
+        self.dependencies = DependencyDB(c.module_bmi_root / 'dependencies.db')
+        self.config.logger.debug(
+            f"{level}: [Dependencies: {self.dependencies.db_path}]"
+        )
         self.state = EngineStates.START
         self.includes: set[str] = set()
         self.modules: set[str] = set()

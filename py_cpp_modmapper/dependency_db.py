@@ -4,6 +4,7 @@ import pickle
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
+from weakref import WeakValueDictionary
 
 import lmdb
 
@@ -72,38 +73,35 @@ def deserialize_value(value_bytes: bytes) -> DBValue:
         raise Exception(f"Unknown value type: {value!r}")
     return value
 
+DBDictType: TypeAlias = WeakValueDictionary[Path, "DependencyDB"]
 
 class DependencyDB:
-    db_env: lmdb.Environment | None = None
-    db_path: Path | None = None
-    engine_count = 0
+    db_by_path: DBDictType = WeakValueDictionary()
 
-    def __init__(self, bmi_path: Path):
-        db_path = bmi_path / "dependency_db.mdb"
-        if DependencyDB.db_env is None:
-            assert DependencyDB.db_path is None
-            db_path.mkdir(parents=True, exist_ok=True)
-            DependencyDB.db_path = db_path
-            DependencyDB.db_env = lmdb.Environment(
-                path=str(db_path),
-                readonly=False, create=True,
-                metasync=False, writemap=True, max_readers=8000
-            )
-        else:
-            assert DependencyDB.db_path == db_path, \
-            "Configuration BMI root changed between "\
-            "instantiations of DependencyDB "\
-            f"({DependencyDB.db_path!r} != {db_path!r})"
-        DependencyDB.engine_count += 1
+    def __new__(cls, *args, **kwargs):
+        db_path = kwargs.get("db_path")
+        if db_path is None:
+            if len(args) < 1:
+                raise Exception("DependencyDB requires a Database path argument")
+            db_path = args[0]
+        db_path = Path(db_path)
+        db = cls.db_by_path.get(db_path)
+        if not isinstance(db, DependencyDB):
+            db = super().__new__(cls)
+            db._initalized = False
+            cls.db_by_path[db_path] = db
+        return db
 
-    def __del__(self):
-        if DependencyDB.engine_count > 0:
-            assert DependencyDB.db_env is not None
-            DependencyDB.engine_count -= 1
-            if DependencyDB.engine_count == 0:
-                DependencyDB.db_env.close()
-                DependencyDB.db_env = None
-                DependencyDB.db_path = None
+    def __init__(self, db_path: Path):
+        if self._initalized:
+            return
+        self._initalized = True
+        self.db_path = db_path
+        DependencyDB.db_env = lmdb.Environment(
+            path=str(db_path),
+            readonly=False, create=True,
+            metasync=False, writemap=True, max_readers=8000
+        )
 
     def __repr__(self):
         return (f"DependencyDB(engine_count={DependencyDB.engine_count}, "
