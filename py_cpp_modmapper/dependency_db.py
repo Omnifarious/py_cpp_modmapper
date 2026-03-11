@@ -1,6 +1,7 @@
 import logging
 import os
 import pickle
+from asyncio import get_event_loop
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
@@ -103,6 +104,27 @@ class DependencyDB:
             readonly=False, create=True,
             metasync=False, writemap=True, max_readers=8000
         )
+
+    async def put(self, key: DBKey, value: DBValue):
+        await get_event_loop().run_in_executor(
+            None, self._put_sync, key, value
+        )
+
+    async def get(self, key: DBKey) -> DBValue | None:
+        await get_event_loop().run_in_executor(
+            None, self._get_sync, key
+        )
+
+    def _put_sync(self, key: DBKey, value: DBValue):
+        with self.db_env.begin(write=True) as txn:
+            txn.put(serialize_key(key), serialize_value(value))
+
+    def _get_sync(self, key: DBKey) -> DBValue | None:
+        with self.db_env.begin(write=False) as txn:
+            value = txn.get(serialize_key(key))
+            if value is None:
+                return None
+            return deserialize_value(value)
 
     def __repr__(self):
         return (f"DependencyDB(engine_count={DependencyDB.engine_count}, "
