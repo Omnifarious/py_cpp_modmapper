@@ -57,6 +57,10 @@ def test_one_db_per_path(tmp_path):
     db3 = DependencyDB(tmp_path / "foo.db")
     assert db1 is db3
     assert db2 is not db3
+    with db2.db_env.begin(write=True) as txn:
+        txn.put(b"foo", b"bar")
+    with db3.db_env.begin(write=False) as txn:
+        assert txn.get(b"foo") != b"bar"
 
 
 def test_depdb_init(depdb: DependencyDB):
