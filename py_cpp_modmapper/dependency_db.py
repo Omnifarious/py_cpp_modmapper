@@ -19,6 +19,11 @@ import lmdb
 
 logger = logging.getLogger("py_cpp_modmapper.dependency_db")
 
+@dataclass(frozen=True, slots=True)
+class RelevantStatData:
+    ctime: int
+    mtime_diff: int
+    size: int
 
 @dataclass(frozen=True, slots=True)
 class DBModuleKey:
@@ -33,9 +38,20 @@ DBKey: TypeAlias = DBModuleKey | DBHeaderKey
 
 @dataclass(slots=True)
 class DBModuleValue:
-    src_stat_data: os.stat_result
-    dest_stat_data: os.stat_result
+    compile_pid: int | None  # A value here indicates compilation in progress
+    last_compile_success: bool
+    src_stat_data: RelevantStatData | None
+    dest_stat_data: RelevantStatData | None
     module_path: str
+    bmi_path: str | None
+    dep_modules: list[str]
+    dep_headers: list[str]
+
+@dataclass(frozen=True, slots=True)
+class CompilationResults:
+    success: bool
+    module_path: str
+    bmi_path: str | None
     dep_modules: list[str]
     dep_headers: list[str]
 
