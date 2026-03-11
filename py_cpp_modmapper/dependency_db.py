@@ -98,7 +98,7 @@ class DependencyDB:
             return
         self._initalized = True
         self.db_path = db_path
-        DependencyDB.db_env = lmdb.Environment(
+        self.db_env = lmdb.Environment(
             path=str(db_path),
             readonly=False, create=True,
             metasync=False, writemap=True, max_readers=8000
