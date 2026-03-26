@@ -1,9 +1,10 @@
 import pytest
 
 from py_cpp_modmapper.dependency_db import (
-    DependencyDB, DBModuleKey, DBHeaderKey, DBModuleValue, DBHeaderValue,
-    serialize_key, deserialize_key, serialize_value, deserialize_value
+    DependencyDB
 )
+from py_cpp_modmapper.depdb_types import DBModuleKey, DBHeaderKey, DBModuleValue, DBHeaderValue, serialize_key, \
+    deserialize_key, serialize_value, deserialize_value
 
 
 @pytest.fixture(scope="function")

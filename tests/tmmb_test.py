@@ -9,6 +9,8 @@ import glob
 
 pytestmark = pytest.mark.cpp_project_src('test_cpp_project')
 
+
+@pytest.mark.asyncio
 async def test_cpp_project_compilation(cpp_project: Path):
     test_dir = cpp_project
 
