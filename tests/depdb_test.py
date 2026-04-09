@@ -3,8 +3,8 @@ import pytest
 from py_cpp_modmapper.dependency_db import (
     DependencyDB
 )
-from py_cpp_modmapper.depdb_types import DBModuleKey, DBHeaderKey, DBModuleValue, DBHeaderValue, serialize_key, \
-    deserialize_key, serialize_value, deserialize_value
+from py_cpp_modmapper.depdb_types import DBModuleKey, DBModuleValue, \
+    serialize_key, serialize_value, HeaderInfo, RelevantStatData
 
 
 @pytest.fixture(scope="function")
@@ -28,28 +28,23 @@ include_test_data = [
     ("iostream.h", None),
     ("unused.h", None)
 ]
-dump_output = """DBHeaderKey(header_path='bouncy.h'): DBHeaderValue(stat_data=None)
-DBModuleKey(modname='top', option_hash='bar'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='a', bmi_path='a', dep_modules=[], dep_headers=['bouncy.h'])
+dump_output = """DBModuleKey(modname='top', option_hash='bar'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='a', bmi_path='a', dep_modules=[], dep_headers=[HeaderInfo(path='bouncy.h', stat_data=RelevantStatData(ctime_offset=1000, mtime=2222, size=50))])
 DBModuleKey(modname='middle_a', option_hash='bar'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='b', bmi_path='b', dep_modules=['top'], dep_headers=[])
 DBModuleKey(modname='middle_b', option_hash='bar'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='c', bmi_path='c', dep_modules=['top'], dep_headers=[])
-DBHeaderKey(header_path='iostream.h'): DBHeaderValue(stat_data=None)
-DBModuleKey(modname='bottom', option_hash='bar'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='d', bmi_path='d', dep_modules=['middle_a', 'middle_b'], dep_headers=['iostream.h'])
-DBModuleKey(modname='top', option_hash='baz'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='a', bmi_path='a', dep_modules=['ghost'], dep_headers=['bouncy.h'])
+DBModuleKey(modname='bottom', option_hash='bar'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='d', bmi_path='d', dep_modules=['middle_a', 'middle_b'], dep_headers=[HeaderInfo(path='iostream.h', stat_data=RelevantStatData(ctime_offset=1000, mtime=2222, size=50))])
+DBModuleKey(modname='top', option_hash='baz'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='a', bmi_path='a', dep_modules=['ghost'], dep_headers=[HeaderInfo(path='bouncy.h', stat_data=RelevantStatData(ctime_offset=1000, mtime=2222, size=50))])
 DBModuleKey(modname='next_a', option_hash='baz'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='e', bmi_path='e', dep_modules=['top'], dep_headers=[])
-DBModuleKey(modname='baloon', option_hash='baz'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='g', bmi_path='g', dep_modules=['next_a'], dep_headers=['iostream.h'])
-DBModuleKey(modname='all', option_hash='baz'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='i', bmi_path='i', dep_modules=['next_a', 'baloon', 'middle_a'], dep_headers=['bouncy.h'])
-DBModuleKey(modname='combined', option_hash='baz'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='h', bmi_path='h', dep_modules=['next_a', 'baloon'], dep_headers=['foo.h'])
-DBModuleKey(modname='next_b', option_hash='baz'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='f', bmi_path='f', dep_modules=['next_a'], dep_headers=[])
-DBHeaderKey(header_path='unused.h'): DBHeaderValue(stat_data=None)"""
+DBModuleKey(modname='baloon', option_hash='baz'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='g', bmi_path='g', dep_modules=['next_a'], dep_headers=[HeaderInfo(path='iostream.h', stat_data=RelevantStatData(ctime_offset=1000, mtime=2222, size=50))])
+DBModuleKey(modname='all', option_hash='baz'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='i', bmi_path='i', dep_modules=['next_a', 'baloon', 'middle_a'], dep_headers=[HeaderInfo(path='bouncy.h', stat_data=RelevantStatData(ctime_offset=1000, mtime=2222, size=50))])
+DBModuleKey(modname='combined', option_hash='baz'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='h', bmi_path='h', dep_modules=['next_a', 'baloon'], dep_headers=[HeaderInfo(path='foo.h', stat_data=RelevantStatData(ctime_offset=1000, mtime=2222, size=50))])
+DBModuleKey(modname='next_b', option_hash='baz'): DBModuleValue(compile_pid=None, last_compile_success=True, src_stat_data=None, dest_stat_data=None, module_path='f', bmi_path='f', dep_modules=['next_a'], dep_headers=[])"""
 
 @pytest.fixture(scope="function")
 def debdb_sample_db(depdb: DependencyDB):
     with depdb.db_env.begin(write=True) as txn:
         for modname, option_hash, src_stat_data, dest_stat_data, path, dep_modules, dep_headers in module_test_data:
             txn.put(serialize_key(DBModuleKey(modname, option_hash)),
-                    serialize_value(DBModuleValue(None, True, src_stat_data, dest_stat_data, path, path, dep_modules, dep_headers)))
-        for header_path, src_stat_data in include_test_data:
-            txn.put(serialize_key(DBHeaderKey(header_path)), serialize_value(DBHeaderValue(src_stat_data)))
+                    serialize_value(DBModuleValue(None, True, src_stat_data, dest_stat_data, path, path, dep_modules, [HeaderInfo(x, RelevantStatData(1000, 2222, 50)) for x in dep_headers])))
     yield depdb
 
 def test_one_db_per_path(tmp_path):

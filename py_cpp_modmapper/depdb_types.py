@@ -1,8 +1,7 @@
 import enum
-import os
 import pickle
 from dataclasses import dataclass
-from typing import TypeAlias
+from sys import intern
 
 
 class CompilationStatus(enum.Enum):
@@ -19,6 +18,10 @@ class RelevantStatData:
     mtime: int
     size: int
 
+    @property
+    def ctime(self) -> int:
+        return self.mtime - self.ctime_offset
+
 
 @dataclass(frozen=True, slots=True)
 class DBModuleKey:
@@ -26,12 +29,10 @@ class DBModuleKey:
     option_hash: str
 
 
-@dataclass(frozen=True, slots=True)
-class DBHeaderKey:
-    header_path: str
-
-
-DBKey: TypeAlias = DBModuleKey | DBHeaderKey
+@dataclass(frozen=False, slots=True)
+class HeaderInfo:
+    path: str
+    stat_data: RelevantStatData | None
 
 
 @dataclass(slots=True)
@@ -43,7 +44,7 @@ class DBModuleValue:
     module_path: str
     bmi_path: str | None
     dep_modules: list[str]
-    dep_headers: list[str]
+    dep_headers: list[HeaderInfo]
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,43 +57,25 @@ class CompilationResults:
     start_time_ns: int
 
 
-@dataclass(slots=True)
-class DBHeaderValue:
-    stat_data: RelevantStatData
+def serialize_key(key: DBModuleKey) -> bytes:
+    return f"m:{key.modname}\0{key.option_hash}".encode('utf-8')
 
 
-DBValue: TypeAlias = DBModuleValue | DBHeaderValue
-
-
-def serialize_key(key: DBKey) -> bytes:
-    if isinstance(key, DBModuleKey):
-        return f"m:{key.modname}\0{key.option_hash}".encode('utf-8')
-    elif isinstance(key, DBHeaderKey):
-        return f"h:{key.header_path}".encode('utf-8')
-    else:
-        raise Exception(f"Unknown key type: {key!r}")
-
-
-def deserialize_key(key_bytes: bytes) -> DBKey:
+def deserialize_key(key_bytes: bytes) -> DBModuleKey:
     key_str = key_bytes.decode('utf-8')
-    if key_str.startswith('m:'):
-        modname, option_hash = key_str[2:].split('\0', 1)
-        return DBModuleKey(modname, option_hash)
-    elif key_str.startswith('h:'):
-        header_path = key_str[2:]
-        return DBHeaderKey(header_path)
-    else:
-        raise Exception(f"Unknown key type: {key_str[0:2]!r}")
+    assert key_str.startswith('m:')
+    modname, option_hash = key_str[2:].split('\0', 1)
+    return DBModuleKey(modname, intern(option_hash))
 
 
-def serialize_value(value: DBValue) -> bytes:
-    if not isinstance(value, (DBModuleValue, DBHeaderValue)):
-        raise Exception(f"Unknown value type: {value!r}")
+def serialize_value(value: DBModuleValue) -> bytes:
+    if not isinstance(value, DBModuleValue):
+        raise TypeError(f"Unknown value type: {value!r}")
     return pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def deserialize_value(value_bytes: bytes) -> DBValue:
+def deserialize_value(value_bytes: bytes) -> DBModuleValue:
     value = pickle.loads(value_bytes)
-    if not isinstance(value, (DBModuleValue, DBHeaderValue)):
-        raise Exception(f"Unknown value type: {value!r}")
+    if not isinstance(value, DBModuleValue):
+        raise TypeError(f"Unknown value type: {value!r}")
     return value

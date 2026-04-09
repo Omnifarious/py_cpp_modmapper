@@ -10,8 +10,8 @@ import lmdb
 
 from . import dependency_scan
 from .depdb_types import (
-    CompilationStatus, CompilationResults, DBModuleKey, DBHeaderKey, DBKey,
-    DBModuleValue, DBValue,
+    CompilationStatus, CompilationResults,
+    DBModuleKey, DBModuleValue, HeaderInfo,
     serialize_key, deserialize_key, serialize_value, deserialize_value
 )
 
@@ -63,12 +63,12 @@ class DependencyDB:
         )
         self.outstanding_compilations: CompilationSet = {}
 
-    async def _put(self, key: DBKey, value: DBValue):
+    async def _put(self, key: DBModuleKey, value: DBModuleValue):
         await get_event_loop().run_in_executor(
             None, self._put_sync, key, value
         )
 
-    async def _get(self, key: DBKey) -> DBValue | None:
+    async def _get(self, key: DBModuleKey) -> DBModuleValue | None:
         return await get_event_loop().run_in_executor(
             None, self._get_sync, key
         )
@@ -174,11 +174,11 @@ class DependencyDB:
             self.outstanding_compilations[key] = True
         return no_dep_updates
 
-    def _put_sync(self, key: DBKey, value: DBValue):
+    def _put_sync(self, key: DBModuleKey, value: DBModuleValue):
         with self.db_env.begin(write=True) as txn:
             txn.put(serialize_key(key), serialize_value(value))
 
-    def _get_sync(self, key: DBKey) -> DBValue | None:
+    def _get_sync(self, key: DBModuleKey) -> DBModuleValue | None:
         with self.db_env.begin(write=False) as txn:
             value = txn.get(serialize_key(key))
             if value is None:
@@ -211,7 +211,9 @@ class DependencyDB:
             value.module_path = results.module_path
             value.bmi_path = results.bmi_path
             value.dep_modules = results.dep_modules
-            value.dep_headers = results.dep_headers
+            value.dep_headers = [
+                HeaderInfo(hdr, None) for hdr in results.dep_headers
+            ]
             try:
                 dependency_scan.update_dependencies(
                     txn, key, value, results.start_time_ns
@@ -253,53 +255,37 @@ class DependencyDB:
         return f"DependencyDB(db_path={self.db_path}, db_env={self.db_env!r})"
 
     def dump(self) -> str:
-        mem_db: dict[DBKey, DBValue] = {}
+        mem_db: dict[DBModuleKey, DBModuleValue] = {}
         with self.db_env.begin() as txn:
             mem_db = {
                 deserialize_key(key): deserialize_value(value)
                 for key, value in txn.cursor()
             }
 
-        def keyfunc(key: DBKey):
-            if isinstance(key, DBModuleKey):
-                return 0, key.option_hash, key.modname
-            elif isinstance(key, DBHeaderKey):
-                return 1, key.header_path
-            else:
-                assert False, f"Unknown key type: {key!r}"
+        def keyfunc(key: DBModuleKey):
+            return key.option_hash, key.modname
 
         mem_db = {k: mem_db[k] for k in sorted(mem_db.keys(), key=keyfunc)}
-        used: set[DBKey] = set()
-        tsorted: list[DBKey] = []
+        used: set[DBModuleKey] = set()
+        tsorted: list[DBModuleKey] = []
         key_interns = {k: k for k in mem_db.keys()}
-        def tsort_helper(key: DBKey, value: DBValue):
+        def tsort_helper(key: DBModuleKey, value: DBModuleValue):
             if key in used:
                 return
             used.add(key)
-            if isinstance(key, DBHeaderKey):
-                tsorted.append(key)
-                return
             assert isinstance(key, DBModuleKey), f"Unknown key type: {key!r}"
             assert value is not None, f"Missing value for key {key!r}"
             assert isinstance(value, DBModuleValue), \
                 f"Unexpected value type {type(value)!r} for key {key!r}"
-            def handle_key(k: DBKey):
+            def handle_key(k: DBModuleKey):
                 k = key_interns.get(k)
                 if k is not None:
                     tsort_helper(k, mem_db[k])
             for dep in value.dep_modules:
                 handle_key(DBModuleKey(dep, key.option_hash))
-            for dep in value.dep_headers:
-                handle_key(DBHeaderKey(dep))
             tsorted.append(key)
         for key, value in mem_db.items():
-            if key not in used:
-                if isinstance(key, DBModuleKey):
-                    tsort_helper(key, value)
-                else:
-                    # All headers occur after all modules because of the sorting
-                    # so this just adds orphans to the end of the list
-                    tsorted.append(key)
+            tsort_helper(key, value)
 
         del used
         del key_interns
